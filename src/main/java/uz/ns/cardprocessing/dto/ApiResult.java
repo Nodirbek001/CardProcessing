@@ -2,6 +2,7 @@ package uz.ns.cardprocessing.dto;
 
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 
 import java.io.Serializable;
 import java.util.Collections;
@@ -9,6 +10,7 @@ import java.util.List;
 
 @Getter
 @Setter
+@ToString
 public class ApiResult<T> implements Serializable {
     private boolean success;
     private T data;

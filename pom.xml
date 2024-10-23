@@ -84,6 +84,11 @@
             <artifactId>json</artifactId>
             <version>20210307</version> <!-- Eng so'nggi versiyasini tekshiring -->
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+        </dependency>
+
 
     </dependencies>
 

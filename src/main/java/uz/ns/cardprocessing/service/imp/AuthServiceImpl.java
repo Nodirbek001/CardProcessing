@@ -1,6 +1,7 @@
 package uz.ns.cardprocessing.service.imp;
 
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -14,12 +15,15 @@ import uz.ns.cardprocessing.entity.User;
 import uz.ns.cardprocessing.repository.UserRepository;
 import uz.ns.cardprocessing.service.contract.AuthService;
 
+import java.util.logging.Logger;
+
 @Slf4j
 @Service
 public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
     private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
+
 
     public AuthServiceImpl(UserRepository userRepository, @Lazy AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;

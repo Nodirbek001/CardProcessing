@@ -1,9 +1,6 @@
 package uz.ns.cardprocessing.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 import uz.ns.cardprocessing.entity.Currency;
 import uz.ns.cardprocessing.entity.Status;
 
@@ -13,6 +10,7 @@ import java.util.UUID;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
+@ToString
 public class CardDto {
     private Long user_id;
     private Status status;
