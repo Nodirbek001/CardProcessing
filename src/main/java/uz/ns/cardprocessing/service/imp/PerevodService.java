@@ -1,6 +1,5 @@
 package uz.ns.cardprocessing.service.imp;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONArray;
@@ -34,76 +33,87 @@ public class PerevodService {
         this.perevodRepository = perevodRepository;
     }
 
-    public ApiResult<RespTransactionDto> debitCard(String cardId, ReqTransactionDto reqTransactionDto, HttpServletRequest req, HttpServletResponse resp) {
+    public ApiResult<RespTransactionDto> debitCard(String cardId, ReqTransactionDto reqTransactionDto, String header, HttpServletResponse resp) {
+
+
         Optional<Card> byId = cardRepository.findById(UUID.fromString(cardId));
 
-        if (byId.isEmpty() || byId.get().getCardStatus().equals(CardStatus.CLOSED)) {
-            resp.setStatus(404);
-            return ApiResult.errorResponse("card blocked", "cart not found", 404);
+        String checkCard = checkCard(resp, header, reqTransactionDto, byId);
+        if (checkCard != null) {
+            return ApiResult.errorResponse(checkCard, checkCard, resp.getStatus());
         }
-        if (byId.get().getCardStatus().equals(CardStatus.BLOCKED)) {
-            return ApiResult.errorResponse("card blocked", "card blocked", 404);
-        }
-//        if (byId.get().getAmount() < reqTransactionDto.getAmount()) {
-//            resp.setStatus(400);
-//            return ApiResult.errorResponse("insufficient amount", "insufficient amount", 400);
-//        }
-        String idempotencyKey = req.getHeader("IdempotencyKey");
-        Optional<Transaction> byIdempotencyKey = perevodRepository.findByIdempotencyKey(UUID.fromString(idempotencyKey));
-        if (byIdempotencyKey.isPresent()) {
-            resp.setStatus(400);
-            return ApiResult.errorResponse("UUID error", "UUID error", 400);
-        }
-        if (reqTransactionDto.getExternal_id().isEmpty() ||
-                reqTransactionDto.getAmount() == null ||
-                reqTransactionDto.getPurpose() == null) {
-            resp.setStatus(400);
-            return ApiResult.errorResponse("invalid request", "invalid request", 400);
+        Card card = byId.orElseThrow();
 
-        }
-        Card card = byId.get();
-
-        Transaction transaction = new Transaction();
-        transaction.setTransactionId(UUID.randomUUID());
-        transaction.setExternalId(UUID.fromString(reqTransactionDto.getExternal_id()));
-        transaction.setAmount(reqTransactionDto.getAmount());
-        transaction.setUserId(card.getUser().getId());
-        transaction.setCardId(UUID.fromString(cardId));
-        transaction.setPurpose(reqTransactionDto.getPurpose());
-        transaction.setIdempotencyKey(UUID.fromString(idempotencyKey));
+        Transaction transaction = createTransaction(reqTransactionDto, header, card);
         transaction.setDescription("debit");
-        transaction.setExchange_rate(getRate());
-        transaction.setCurrency(reqTransactionDto.getCurrency());
         if (reqTransactionDto.getCurrency() == null || reqTransactionDto.getCurrency().equals(Currency.UZS)) {
             if (card.getCurrency().equals(Currency.UZS)) {
                 transaction.setAfter_balance(card.getAmount() + reqTransactionDto.getAmount());
-
                 card.setAmount(card.getAmount() + reqTransactionDto.getAmount());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
 
             } else {
                 transaction.setAfter_balance(card.getAmount() + reqTransactionDto.getAmount() / getRate());
                 card.setAmount(card.getAmount() + reqTransactionDto.getAmount() / getRate());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
-
             }
 
         } else {
             if (card.getCurrency().equals(Currency.USD)) {
                 transaction.setAfter_balance(card.getAmount() + reqTransactionDto.getAmount());
                 card.setAmount(card.getAmount() + reqTransactionDto.getAmount());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
+
             } else {
                 transaction.setAfter_balance(card.getAmount() + reqTransactionDto.getAmount() * getRate());
                 card.setAmount(card.getAmount() + reqTransactionDto.getAmount() * getRate());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
-
             }
         }
+        return save(card, transaction);
+
+    }
+
+
+    public ApiResult<RespTransactionDto> creditCard(String cardId, ReqTransactionDto reqTransactionDto, String header, HttpServletResponse resp) {
+        Optional<Card> byId = cardRepository.findById(UUID.fromString(cardId));
+        String check = checkCard(resp, header, reqTransactionDto, byId);
+        if (check != null) {
+            return ApiResult.errorResponse(check, check, resp.getStatus());
+        }
+        Card card = byId.orElseThrow();
+
+        Transaction transaction = createTransaction(reqTransactionDto, header, card);
+        transaction.setDescription("credit");
+        if (reqTransactionDto.getCurrency() == null || reqTransactionDto.getCurrency().equals(Currency.UZS)) {
+            if (card.getCurrency().equals(Currency.UZS)) {
+                if (card.getAmount() < (reqTransactionDto.getAmount()))
+                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
+                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount());
+                card.setAmount(card.getAmount() - reqTransactionDto.getAmount());
+            } else {
+                if (card.getAmount() < (reqTransactionDto.getAmount() / getRate()))
+                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
+                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount() / getRate());
+                card.setAmount(card.getAmount() - reqTransactionDto.getAmount() / getRate());
+            }
+
+        } else {
+            if (card.getCurrency().equals(Currency.USD)) {
+                if (card.getAmount() < (reqTransactionDto.getAmount()))
+                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
+                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount());
+                card.setAmount(card.getAmount() - reqTransactionDto.getAmount());
+            } else {
+                if (card.getAmount() < (reqTransactionDto.getAmount() * getRate()))
+                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
+                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount() * getRate());
+                card.setAmount(card.getAmount() - reqTransactionDto.getAmount() * getRate());
+            }
+        }
+        return save(card, transaction);
+
+    }
+
+    private ApiResult<RespTransactionDto> save(Card card, Transaction transaction) {
+        cardRepository.save(card);
+        perevodRepository.save(transaction);
 
         return ApiResult.successResponse(
                 RespTransactionDto.builder()
@@ -117,8 +127,8 @@ public class PerevodService {
                         .external_id(String.valueOf(transaction.getExternalId())).build(), 200
 
         );
-
     }
+
 
     public Long getRate() {
 
@@ -160,96 +170,41 @@ public class PerevodService {
         return null;
     }
 
-    public ApiResult<RespTransactionDto> creditCard(String cardId, ReqTransactionDto reqTransactionDto, HttpServletRequest req, HttpServletResponse resp) {
-        Optional<Card> byId = cardRepository.findById(UUID.fromString(cardId));
-
-        if (byId.isEmpty() || byId.get().getCardStatus().equals(CardStatus.CLOSED)) {
-            resp.setStatus(404);
-            return ApiResult.errorResponse("card blocked", "cart not found", 404);
-        }
-        if (byId.get().getCardStatus().equals(CardStatus.BLOCKED)) {
-            return ApiResult.errorResponse("card blocked", "card blocked", 404);
-        }
-//        if (byId.get().getAmount() < reqTransactionDto.getAmount()) {
-//            resp.setStatus(400);
-//            return ApiResult.errorResponse("insufficient amount", "insufficient amount", 400);
-//        }
-        String idempotencyKey = req.getHeader("IdempotencyKey");
-        Optional<Transaction> byIdempotencyKey = perevodRepository.findByIdempotencyKey(UUID.fromString(idempotencyKey));
-        if (byIdempotencyKey.isPresent()) {
-            resp.setStatus(400);
-            return ApiResult.errorResponse("UUID error", "UUID error", 400);
-        }
-        if (reqTransactionDto.getExternal_id().isEmpty() ||
-                reqTransactionDto.getAmount() == null ||
-                reqTransactionDto.getPurpose() == null) {
-            resp.setStatus(400);
-            return ApiResult.errorResponse("invalid request", "invalid request", 400);
-
-        }
-        Card card = byId.get();
-
+    public Transaction createTransaction(ReqTransactionDto reqTransactionDto, String header, Card card) {
         Transaction transaction = new Transaction();
         transaction.setTransactionId(UUID.randomUUID());
         transaction.setExternalId(UUID.fromString(reqTransactionDto.getExternal_id()));
         transaction.setAmount(reqTransactionDto.getAmount());
         transaction.setUserId(card.getUser().getId());
-        transaction.setCardId(UUID.fromString(cardId));
+        transaction.setCardId(card.getId());
         transaction.setPurpose(reqTransactionDto.getPurpose());
-        transaction.setIdempotencyKey(UUID.fromString(idempotencyKey));
-        transaction.setDescription("credit");
+        transaction.setIdempotencyKey(UUID.fromString(header));
         transaction.setExchange_rate(getRate());
         transaction.setCurrency(reqTransactionDto.getCurrency());
-        if (reqTransactionDto.getCurrency() == null || reqTransactionDto.getCurrency().equals(Currency.UZS)) {
-            if (card.getCurrency().equals(Currency.UZS)) {
-                if (card.getAmount() < (reqTransactionDto.getAmount()))
-                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
-                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount());
-                card.setAmount(card.getAmount() - reqTransactionDto.getAmount());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
+        return transaction;
+    }
 
-            } else {
-                if (card.getAmount() < (reqTransactionDto.getAmount() / getRate()))
-                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
-                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount() / getRate());
-                card.setAmount(card.getAmount() - reqTransactionDto.getAmount() / getRate());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
-
-            }
-
-        } else {
-            if (card.getCurrency().equals(Currency.USD)) {
-                if (card.getAmount() < (reqTransactionDto.getAmount()))
-                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
-                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount());
-                card.setAmount(card.getAmount() - reqTransactionDto.getAmount());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
-            } else {
-                if (card.getAmount() < (reqTransactionDto.getAmount() * getRate()))
-                    return ApiResult.errorResponse("mablag' yetarli emas", "Mablag' yetarli emas", 400);
-                transaction.setAfter_balance(card.getAmount() - reqTransactionDto.getAmount() * getRate());
-                card.setAmount(card.getAmount() - reqTransactionDto.getAmount() * getRate());
-                cardRepository.save(card);
-                perevodRepository.save(transaction);
-
-            }
+    public String checkCard(HttpServletResponse resp, String header, ReqTransactionDto reqTransactionDto, Optional<Card> byId) {
+        if (byId.isEmpty() || byId.get().getCardStatus().equals(CardStatus.CLOSED)) {
+            resp.setStatus(404);
+            return "card blocked";
+        }
+        if (byId.get().getCardStatus().equals(CardStatus.BLOCKED)) {
+            return "card blocked";
         }
 
-        return ApiResult.successResponse(
-                RespTransactionDto.builder()
-                        .amount(transaction.getAmount())
-                        .cart_id(String.valueOf(transaction.getCardId()))
-                        .after_balance(transaction.getAfter_balance())
-                        .currency(transaction.getCurrency())
-                        .exchange_rate(transaction.getExchange_rate())
-                        .purpose(transaction.getPurpose())
-                        .transaction_id(String.valueOf(transaction.getTransactionId()))
-                        .external_id(String.valueOf(transaction.getExternalId())).build(), 200
+        Optional<Transaction> byIdempotencyKey = perevodRepository.findByIdempotencyKey(UUID.fromString(header));
+        if (byIdempotencyKey.isPresent()) {
+            resp.setStatus(400);
+            return "UUID error";
+        }
+        if (reqTransactionDto.getExternal_id().isEmpty() ||
+                reqTransactionDto.getAmount() == null ||
+                reqTransactionDto.getPurpose() == null) {
+            resp.setStatus(400);
+            return "invalid request";
 
-        );
-
+        }
+        return null;
     }
 }

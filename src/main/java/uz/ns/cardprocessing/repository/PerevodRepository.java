@@ -9,9 +9,11 @@ import uz.ns.cardprocessing.entity.Transaction;
 
 import java.util.Optional;
 import java.util.UUID;
+
 @Repository
 public interface PerevodRepository extends JpaRepository<Transaction, UUID> {
     Optional<Transaction> findByTransactionId(UUID transactionId);
+
     Optional<Transaction> findByIdempotencyKey(UUID idempotencyKey);
 
     Page<Transaction> findAll(Specification<Transaction> spec, Pageable pageable);

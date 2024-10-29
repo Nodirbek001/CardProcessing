@@ -1,6 +1,5 @@
 package uz.ns.cardprocessing.service.imp;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,35 +29,25 @@ public class CardService {
         this.userRepository = userRepository;
     }
 
-    public ApiResult<ResponseCardDto> addCard(CardDto cardDto, HttpServletRequest request) {
-        boolean checkUUID = checkUUID(request.getHeader("IdempotencyKey"));
-        if (!checkUUID) {
-            return ApiResult.errorResponse("UUID error", "UUID error", 400);
-        }
-        UUID idempotencyKeyUUID = UUID.fromString(request.getHeader("IdempotencyKey"));
-        Optional<Card> idempotencyKey = cartRepository.findByIdempotencyKey(idempotencyKeyUUID);
-        if (idempotencyKey.isPresent()) {
+    public ApiResult<ResponseCardDto> addCard(CardDto cardDto, String header) {
+        UUID idempotencyKeyUUID = UUID.fromString(header);
+        Optional<Card> optionalCard = cartRepository.findByIdempotencyKey(idempotencyKeyUUID);
+        if (optionalCard.isPresent()) {
+            Card card = optionalCard.get();
             ResponseCardDto build = ResponseCardDto.builder()
-                    .cartId(String.valueOf(idempotencyKey.get().getId()))
-                    .cartStatus(idempotencyKey.get().getCardStatus())
-                    .balance(idempotencyKey.get().getAmount())
-                    .userId(String.valueOf(idempotencyKey.get().getUser().getId()))
-                    .currency(idempotencyKey.get().getCurrency())
+                    .cartId(String.valueOf(card.getId()))
+                    .cartStatus(card.getCardStatus())
+                    .balance(card.getAmount())
+                    .userId(String.valueOf(card.getUser().getId()))
+                    .currency(card.getCurrency())
                     .build();
             System.out.println(build);
             return ApiResult.successResponse(
                     build, 200
             );
         }
-        List<Card> carts = cartRepository.findByUserId(cardDto.getUser_id()).get();
-        int a = 0;
-        for (Card cart : carts) {
-            if (cart.getCardStatus().equals(CardStatus.CLOSED))
-                a++;
-
-        }
-        int i = carts.size() - a;
-        if (i >= 3)
+        List<Card> carts = cartRepository.findByUserIdAndCardStatus(cardDto.getUser_id(), CardStatus.CLOSED).orElseThrow();
+        if (carts.size() >= 3)
             return ApiResult.errorResponse("3tadan kop karta ochib bolmaydi", "3tadan kop karta ochib bolmaydi", 400);
 
         Card cart = new Card();
@@ -84,11 +73,11 @@ public class CardService {
         if (byId.isEmpty()) {
             return ApiResult.errorResponse("User not found", "user not found", 400);
         }
-        long randomNumber = (long) (Math.random() * 9000000000000000L) + 1000000000000000L;
-        cart.setCardNumber(String.valueOf(randomNumber));
-        cart.setIdempotencyKey(UUID.fromString(request.getHeader("IdempotencyKey")));
+        String randomNumber = String.valueOf((Math.random() * 9000000000000000L) + 1000000000000000L);
+        cart.setCardNumber(randomNumber);
+        cart.setIdempotencyKey(idempotencyKeyUUID);
         cart.setAmount(cardDto.getInitial_amount());
-        cart.setUser(byId.orElse(new User()));
+        cart.setUser(byId.get());
         Card save = cartRepository.save(cart);
 
         return ApiResult.successResponse(
@@ -104,30 +93,22 @@ public class CardService {
     }
 
 
-    private boolean checkUUID(String idempotencyKey) {
-        try {
-            UUID.fromString(idempotencyKey);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-
-    }
-
     public ApiResult<ResponseCardDto> getCards(UUID cardId, HttpServletResponse response) {
-        Card cart = checkCard(cardId);
-        if (cart == null)
+
+        Optional<Card> cart = cartRepository.findById(cardId);
+        if (cart.isEmpty())
             return ApiResult.errorResponse("Card not found", "Card not found", 404);
+        Card card = cart.get();
         ResponseCardDto build = ResponseCardDto.builder()
-                .cartId(String.valueOf(cart.getId()))
-                .cartStatus(cart.getCardStatus())
-                .balance(cart.getAmount())
-                .userId(String.valueOf(cart.getUser().getId()))
-                .currency(cart.getCurrency())
+                .cartId(String.valueOf(card.getId()))
+                .cartStatus(card.getCardStatus())
+                .balance(card.getAmount())
+                .userId(String.valueOf(card.getUser().getId()))
+                .currency(card.getCurrency())
                 .build();
         UUID ETag = UUID.randomUUID();
-        cart.setETag(ETag);
-        cartRepository.save(cart);
+        card.setETag(ETag);
+        cartRepository.save(card);
 
         response.setHeader("ETag", ETag.toString());
         return ApiResult.successResponse(build, 200);
@@ -135,15 +116,10 @@ public class CardService {
 
     }
 
-    private Card checkCard(UUID cardId) {
-        Optional<Card> byId = cartRepository.findById(cardId);
-        return byId.orElse(null);
 
-    }
+    public ApiResult<ResponseCardDto> block(UUID cardId, String header, HttpServletResponse response) {
+        Card cart = cartRepository.findById(cardId).orElse(null);
 
-    public ApiResult<ResponseCardDto> block(UUID cardId, HttpServletRequest request, HttpServletResponse response) {
-        Optional<Card> byId = cartRepository.findById(cardId);
-        Card cart = byId.orElse(null);
 
         if (cart == null || cart.getCardStatus().equals(CardStatus.CLOSED)) {
             response.setStatus(404);
@@ -154,7 +130,7 @@ public class CardService {
             return ApiResult.errorResponse("Card already blocked", "Card already blocked", 404);
         }
 
-        if (!byId.get().getETag().equals(UUID.fromString(request.getHeader("If-Match")))) {
+        if (!cart.getETag().equals(UUID.fromString(header))) {
             response.setStatus(400);
             return ApiResult.errorResponse("Invalid ETag", "Invalid ETag", 400);
 
@@ -166,9 +142,8 @@ public class CardService {
         return ApiResult.successResponse();
     }
 
-    public ApiResult<ResponseCardDto> unblock(UUID cardId, HttpServletRequest request, HttpServletResponse response) {
-        Optional<Card> byId = cartRepository.findById(cardId);
-        Card cart = byId.orElse(null);
+    public ApiResult<ResponseCardDto> unblock(UUID cardId, String header, HttpServletResponse response) {
+        Card cart = cartRepository.findById(cardId).orElse(null);
 
         if (cart == null || cart.getCardStatus().equals(CardStatus.CLOSED)) {
             response.setStatus(404);
@@ -178,7 +153,7 @@ public class CardService {
             response.setStatus(404);
             return ApiResult.errorResponse("Card already active", "Card already active", 404);
         }
-        if (!byId.get().getETag().equals(UUID.fromString(request.getHeader("If-Match")))) {
+        if (!cart.getETag().equals(UUID.fromString(header))) {
             response.setStatus(400);
             return ApiResult.errorResponse("Invalid ETag", "Invalid ETag", 400);
 

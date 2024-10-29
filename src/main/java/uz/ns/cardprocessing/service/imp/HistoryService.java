@@ -7,8 +7,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.RequestParam;
-import uz.ns.cardprocessing.dto.ApiResult;
 import uz.ns.cardprocessing.entity.Currency;
 import uz.ns.cardprocessing.entity.Transaction;
 import uz.ns.cardprocessing.repository.PerevodRepository;
@@ -33,7 +31,6 @@ public class HistoryService {
         Specification<Transaction> spec = (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
 
-            // Parametrlar bo'yicha filter qo'shish
             if (params.containsKey("transaction_id")) {
                 predicates.add(criteriaBuilder.equal(root.get("transaction_id"), params.get("transaction_id")));
             }
