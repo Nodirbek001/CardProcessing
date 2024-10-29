@@ -18,13 +18,11 @@ import uz.ns.cardprocessing.service.contract.AuthService;
 @Service
 public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
-    private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
 
 
-    public AuthServiceImpl(UserRepository userRepository, @Lazy AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder) {
+    public AuthServiceImpl(UserRepository userRepository,  PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
-        this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
     }
 
